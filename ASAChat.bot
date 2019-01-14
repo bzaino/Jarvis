@@ -1,0 +1,18 @@
+{
+    "name": "ASAChat",
+    "description": "",
+    "services": [
+        {
+            "type": "endpoint",
+            "appId": "",
+            "appPassword": "",
+            "endpoint": "http://localhost:3979/api/messages",
+            "id": "8bc0d140-e121-11e8-8384-e594970355b4",
+            "name": "http://localhost:3979/api/messages"
+        }
+    ],
+    "padlock": "",
+    "version": "2.0",
+    "overrides": null,
+    "path": "C:\\Bitbucket\\ASAChat\\ASAChat.bot"
+}

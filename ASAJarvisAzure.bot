@@ -1,0 +1,18 @@
+{
+    "name": "ASAJarvisAzure",
+    "description": "",
+    "services": [
+        {
+            "type": "endpoint",
+            "appId": "deaf213d-7082-497c-aa1d-b3483d23ca5c",
+            "appPassword": "gulrRLJ081:=uvfTOZQ72(^",
+            "endpoint": "https://asajarvisappservice.azurewebsites.net/api/messages",
+            "id": "a7c95380-ff17-11e8-8700-a16b705cdf9b",
+            "name": "https://asajarvisappservice.azurewebsites.net/api/messages"
+        }
+    ],
+    "padlock": "",
+    "version": "2.0",
+    "overrides": null,
+    "path": "C:\\Bitbucket\\ASAChat\\ASAJarvisAzure.bot"
+}
