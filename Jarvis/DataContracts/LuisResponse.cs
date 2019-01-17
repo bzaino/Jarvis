@@ -11,7 +11,7 @@ namespace Jarvis
         public string query { get; set; }
         public Topscoringintent topScoringIntent { get; set; }
         public Intent[] intents { get; set; }
-        public object[] entities { get; set; }
+        public Entity[] entities { get; set; }
         
 
         public class Topscoringintent
@@ -24,6 +24,11 @@ namespace Jarvis
         {
             public string intent { get; set; }
             public float score { get; set; }
+        }
+
+        public class Entity
+        {
+            public string entity { get; set; }
         }
 
     }

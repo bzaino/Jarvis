@@ -4,6 +4,9 @@ using Microsoft.Bot.Builder.Dialogs;
 using Microsoft.Bot.Connector;
 using Jarvis.Utilities;
 using System.Collections.Generic;
+using System.Text;
+using Atlassian.Jira;
+using System.Net.Mail;
 
 namespace Jarvis.Utilities
 {
@@ -41,7 +44,19 @@ namespace Jarvis.Utilities
                     break;
 
                 case nameof(Utility.Intent.Weather):
-                    HandleWeatherIntent(context);
+                    await HandleWeatherIntent(context, intent, false);
+                    break;
+
+                case nameof(Utility.Intent.WeatherWeekend):
+                    await HandleWeatherIntent(context, intent, true);
+                    break;
+
+                case nameof(Utility.Intent.WhoAmI):
+                    ///await HandleWhoAmI(context);
+                    break;
+
+                case nameof(Utility.Intent.HelpdeskTicket):
+                    await HandleHelpdeskIntent(context);
                     break;
 
                 default:
@@ -53,13 +68,62 @@ namespace Jarvis.Utilities
 
         }
 
+        private async Task HandleHelpdeskIntent(IDialogContext context)
+        {
+            await context.PostAsync("Let me open a Help Desk ticket for you. First I need to get some information.");
+
+            //this will set the ticket's summary and description to the same value. We can also prompt the user for a brief summary and detailed description if needed
+            PromptDialog.Text(
+                context: context,
+                resume: CreateHelpdeskTicket,
+                prompt: "Please give me a brief description of your issue.",
+                retry: "Sorry, I didn't understand that. Please try again."
+            );
+        }
+
+        /// <summary>
+        /// Using info gathered from user, create a helpdesk ticket
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="result"></param>
+        /// <returns></returns>
+        private async Task CreateHelpdeskTicket(IDialogContext context, IAwaitable<string> result)
+        {
+            var ticketDescription = await result;
+
+            try
+            {
+                //send an email to JSD to create the ticket
+                var sender = await GetEmail(context);
+                                    
+                MailMessage message = new MailMessage();
+                SmtpClient smtp = new SmtpClient();
+                message.From = new MailAddress(sender);
+                message.To.Add(new MailAddress(Utility.debugMode == "true" ? "mlemieux@asa.org" : "jiraservicedesk@asa.org"));
+                message.Subject = ticketDescription.Length > 50 ? ticketDescription.Substring(0,50) : ticketDescription;
+                message.IsBodyHtml = true;
+                message.Body = ticketDescription;
+                smtp.Port = 25;
+                smtp.Host = "mailhost";
+                smtp.DeliveryMethod = SmtpDeliveryMethod.Network;
+                smtp.Send(message);
+
+                await context.PostAsync("I opened up ticket for you and you should be getting an email about it soon. Best of luck.");
+            }
+
+            catch (Exception ex)
+            {
+                await context.PostAsync($"There was an issue creating your ticket:{ex.InnerException.Message}");
+            }
+        }
+
         /// <summary>
         /// Using the address given to us by the user, get the traffic time and display it to the user
         /// </summary>
         /// <param name="context"></param>
         /// <param name="result"></param>
         /// <returns></returns>
-        private async Task PostAddressAnswer(IDialogContext context, IAwaitable<string> result)
+        private async Task GetTrafficInfo(IDialogContext context, IAwaitable<string> result)
         {
             var location = await result;
             await context.PostAsync($"I see you want to go to {location}.");
@@ -71,31 +135,6 @@ namespace Jarvis.Utilities
 
             await DisplayAnswersAsync(context, chatAnswer);
 
-        }
-
-        /// <summary>
-        /// Using the address given to us by the user, get the traffic time and display it to the user
-        /// </summary>
-        /// <param name="context"></param>
-        /// <param name="result"></param>
-        /// <returns></returns>
-        private async Task CheckWeather(IDialogContext context, IAwaitable<string> result)
-        {
-            var location = await result;
-
-            var weatherInfo = await Utility.CheckWeather(location);
-
-            if (weatherInfo.main != null)
-            {
-                var responseLocation = weatherInfo.name;
-                var currentTemp = Math.Ceiling(weatherInfo.main.temp);
-                var lowTemp = Math.Ceiling(weatherInfo.main.temp_min);
-                var highTemp = Math.Ceiling(weatherInfo.main.temp_max);
-                //description of sky (Clear, cloudy, etc.)
-                var skies = weatherInfo.weather[0].description;
-
-                await context.PostAsync(string.Format("In {0}, it is currently {1} degrees and the skies are {2}. The low today will be {3} with a high of {4}.", responseLocation, currentTemp, skies, lowTemp, highTemp));
-            }
         }
 
         private async Task DisplayAnswersAsync(IDialogContext context, List<Jarvis.Models.Answer> chatAnswer)
@@ -126,20 +165,113 @@ namespace Jarvis.Utilities
         {
             PromptDialog.Text(
                 context: context,
-                resume: PostAddressAnswer,
+                resume: GetTrafficInfo,
                 prompt: "Where would you like to go?",
                 retry: "Sorry, I didn't understand that. Please try again."
             );            
         }
 
-        private void HandleWeatherIntent(IDialogContext context)
+        private async Task HandleWeatherIntent(IDialogContext context, LuisResponse intent, bool showWeekendInfo)
         {
-            PromptDialog.Text(
-                context: context,
-                resume: CheckWeather,
-                prompt: "What city would you like the weather for? Enter in the City/State or Zip Code for the intended area.",
-                retry: "Sorry, I didn't understand that. Please try again."
-            );
+            if (intent.entities.Length > 0)
+            {
+                var location = string.Empty;
+                //check to see if we just have a city, or a city and a state.
+                if (intent.entities.Length == 2)
+                {
+                    location = intent.entities[0].entity + "," + intent.entities[1].entity;
+                }
+                else
+                {
+                    location = intent.entities[0].entity;
+                }
+
+                await GetDisplayWeatherInfo(context, location, showWeekendInfo);
+            }
+            else
+            {
+                context.UserData.SetValue("intentName", intent.topScoringIntent.intent);
+
+                PromptDialog.Text(
+                    context: context,
+                    resume: CheckWeatherUserInfo,
+                    prompt: "What city would you like the weather for? Enter in the City/State or Zip Code for the intended area.",
+                    retry: "Sorry, I didn't understand that. Please try again."
+                );
+            }
+        }
+
+        private async Task CheckWeatherUserInfo(IDialogContext context, IAwaitable<string> result)
+        {
+            var location = await result;
+
+            var showWeekendInfo = false;
+
+            if (context.UserData.ContainsKey("intentName"))
+            {
+                if (context.UserData.GetValue<string>("intentName") == nameof(Utility.Intent.WeatherWeekend))
+                {
+                    showWeekendInfo = true;
+                }
+            }
+
+            await GetDisplayWeatherInfo(context, location, showWeekendInfo);
+        }
+
+        /// <summary>
+        /// Make Api call to get the weather info and display the response to the user
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="location"></param>
+        /// <returns></returns>
+        private async Task GetDisplayWeatherInfo(IDialogContext context, string location, bool showWeekendInfo)
+        {
+            var weatherInfo = await Utility.CheckWeather(location, showWeekendInfo);
+
+            if (weatherInfo.current == null)
+            {
+                //Location not found
+                await context.PostAsync(string.Format("Sorry, we could not find a weather report for the location you entered: {0}", location));
+            }
+            else if (weatherInfo.forecast.forecastday.Length > 0)
+            {
+                var responseLocation = weatherInfo.location.name;
+                var currentTemp = Math.Ceiling(weatherInfo.current.temp_f);
+                var lowTemp = Math.Ceiling(weatherInfo.forecast.forecastday[0].day.mintemp_f);
+                var highTemp = Math.Ceiling(weatherInfo.forecast.forecastday[0].day.maxtemp_f);
+                //description of sky (Clear, cloudy, etc.)
+                var skies = weatherInfo.current.condition.text;
+
+                await context.PostAsync(string.Format("In {0}, it is currently {1} degrees and it is {2}. The low today will be {3} with a high of {4}.", responseLocation, currentTemp, skies, lowTemp, highTemp));
+
+            }
+            else
+            {
+                await context.PostAsync(string.Format("Sorry, we had a problem finding a weather report for the location you entered: {0}. Please try again later.", location));
+            }
+        }
+        
+        private async Task<string> GetEmail(IDialogContext context)
+        {
+            //default username
+            var email = "Jarvis@asa.org";
+
+            //within Teams, we have access to the user's email address, since it is linked to Microsoft. Other channels do not have this detail, so we will create the ticket under Jarvis
+            if (context.Activity.ChannelId == "msteams")
+            {
+                var connector = new ConnectorClient(new Uri(context.Activity.ServiceUrl));
+                var members = await connector.Conversations.GetConversationMembersAsync(context.Activity.Conversation.Id);
+
+                foreach (var member in members)
+                {
+                    email = member.Properties["email"].ToString();
+                }
+            }
+
+            //var email = "bzaino@asa.org";
+            //username = email.Substring(0, email.IndexOf("@"));
+
+            return email;
         }
     }
 }

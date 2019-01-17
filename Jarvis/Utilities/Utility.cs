@@ -18,6 +18,10 @@ using System.Runtime.Serialization;
 using System.ServiceModel.Web;
 using System.Runtime.Serialization.Json;
 using Jarvis.DataContracts;
+using Jarvis.DataContracts.WeatherData;
+using System.Security.Cryptography;
+using Newtonsoft.Json;
+
 
 namespace Jarvis.Utilities
 {
@@ -26,23 +30,35 @@ namespace Jarvis.Utilities
         /// <summary>
         /// configuration settings
         /// </summary>
+
+        public static string debugMode = ConfigurationManager.AppSettings["DebugMode"];
         public static string searchServiceName = ConfigurationManager.AppSettings["SearchServiceName"];
         public static string queryApiKey = ConfigurationManager.AppSettings["SearchServiceQueryApiKey"];
         public static string searchIndexName = ConfigurationManager.AppSettings["SearchIndexName"];
         public static string analyticsTelemetryKey = ConfigurationManager.AppSettings["SearchAnalyticsTelemetryKey"];
         public static string msAppId = ConfigurationManager.AppSettings["MicrosoftAppId"];
         public static string msAppPwd = ConfigurationManager.AppSettings["MicrosoftAppPassword"];
+        //LUIS Info
         public static string luisSubscriptionKey = ConfigurationManager.AppSettings["LUIS_SubscriptionKey"];
         public static string luisModelId = ConfigurationManager.AppSettings["LUIS_ModelId"];
         public static string isLuisStaging = ConfigurationManager.AppSettings["LUIS_Staging"];
-        public static string debugMode = ConfigurationManager.AppSettings["DebugMode"];
+        //traffic info 
         public static string bingAccessKey = ConfigurationManager.AppSettings["BingSearchKey"];
         public static string bingMapsKey = ConfigurationManager.AppSettings["BingMapsKey"];
-        public static string weatherApiKey = ConfigurationManager.AppSettings["WeatherApiKey"];
-        public static string weatherApiUriBase = ConfigurationManager.AppSettings["WeatherApiUriBase"];
         public static string trafficApiUriBase = ConfigurationManager.AppSettings["TrafficApiUriBase"];
+        //Search info
         public static string googleSearchBase = ConfigurationManager.AppSettings["GoogleSearchBase"];
         public static string googleSearchSuffix = ConfigurationManager.AppSettings["GoogleSearchSuffix"];
+        //Weather Api
+        public static string weatherApiKey = ConfigurationManager.AppSettings["WeatherApiKey"];
+        public static string weatherApiUriBase = ConfigurationManager.AppSettings["WeatherApiUriBase"];
+        public static string yahooWeatherAppId = ConfigurationManager.AppSettings["YahooWeatherAppId"];
+        public static string yahooWeatherClientId = ConfigurationManager.AppSettings["YahooWeatherClientId"];
+        public static string yahooWeatherSecret = ConfigurationManager.AppSettings["YahooWeatherSecret"];
+        public static string accuWeatherApiKey = ConfigurationManager.AppSettings["AccuWeatherApiKey"];
+        public static string accuWeatherCitySearchApi = ConfigurationManager.AppSettings["AccuWeatherCitySearchApi"];
+        public static string accuWeatherConditionsApi = ConfigurationManager.AppSettings["AccuWeatherConditionsApi"];
+        public static string accuWeatherFiveDayApi = ConfigurationManager.AppSettings["AccuWeatherFiveDayApi"];
 
         /// <summary>
         /// Intents that require specific functionality, such as follow up questions, in order to provide answers.
@@ -50,14 +66,18 @@ namespace Jarvis.Utilities
         /// </summary>
         public enum Intent
         {
-            [field:IODescription("None")]
+            [field: IODescription("None")]
             None,
             [field: IODescription("Traffic")]
             Traffic,
             [field: IODescription("Weather")]
             Weather,
             [field: IODescription("HelpdeskTicket")]
-            HelpdeskTicket
+            HelpdeskTicket,
+            [field: IODescription("WhoAmI")]
+            WhoAmI,
+            [field: IODescription("WeatherWeekend")]
+            WeatherWeekend
         }
 
         public static string Truncate(this string value, int maxLength)
@@ -300,32 +320,58 @@ namespace Jarvis.Utilities
             return duration;
         }
 
-        public static async Task<WeatherInfo> CheckWeather (string location)
+        public static async Task<WeatherInfo> CheckWeather(string location, bool getWeekendWeather)
         {
             var weatherInfo = new WeatherInfo();
+            var days = "1";
 
-            var weatherUrl = new Uri(string.Format(weatherApiUriBase, location, weatherApiKey));
-
-            using (var wc = new WebClient())
+            if (getWeekendWeather)
             {
-                try
-                {
-                    var weatherResponse = await wc.OpenReadTaskAsync(weatherUrl);
-
-                    //Transform web client response to BingApi Response object
-                    DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(WeatherInfo));
-                    weatherInfo = serializer.ReadObject(weatherResponse) as WeatherInfo;
-                }
-
-                catch (Exception ex)
-                {
-                    var message = ex.Message;
-                }
+                days = "7";
             }
+
+            Uri weatherUri = new Uri(string.Format(weatherApiUriBase, weatherApiKey, location, days));
+
+            WebClient wc = new WebClient();
+
+            var weatherResponse = await wc.DownloadStringTaskAsync(weatherUri);
+
+            weatherInfo = JsonConvert.DeserializeObject<WeatherInfo>(weatherResponse);
 
             return weatherInfo;
 
         }
+        //public static async Task HandleOAuth()
+        //{
+        //    HttpClient client = new HttpClient(new OAuthMessageHandler(new HttpClientHandler()));
+
+        //    var address = "https://weather-ydn-yql.media.yahoo.com/forecastrss?location=sunnyvale,ca&format=json";
+
+        //    // Send asynchronous request to twitter
+        //    await client.GetAsync(address).ContinueWith(
+        //        (requestTask) =>
+        //        {
+        //            // Get HTTP response from completed task.
+        //            HttpResponseMessage response = requestTask.Result;
+
+        //            // Check that response was successful or throw exception
+        //            //response.EnsureSuccessStatusCode();
+
+        //            //// Read response asynchronously as JsonValue and write out tweet texts
+        //            //response.Content.ReadAsAsync<JsonArray>().ContinueWith(
+        //            //    (readTask) =>
+        //            //    {
+        //            //        JsonArray statuses = readTask.Result;
+        //            //        Console.WriteLine("\nLast 5 statuses from ScottGu's twitter account:\n");
+        //            //        foreach (var status in statuses)
+        //            //        {
+        //            //            Console.WriteLine(status["text"] + "\n");
+        //            //        }
+        //            //    });
+        //        });
+        //}
+
+
 
     }
 }
