@@ -27,6 +27,7 @@ namespace Jarvis.DataContracts.WeatherData
         public int humidity { get; set; }
         public int cloud { get; set; }
         public float feelslike_f { get; set; }
+        public string last_updated { get; set; }
     }
 
     public class Condition

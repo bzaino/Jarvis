@@ -45,14 +45,11 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Atlassian.Jira, Version=10.4.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\Atlassian.SDK.10.4.0\lib\net452\Atlassian.Jira.dll</HintPath>
+    <Reference Include="AdaptiveCards, Version=1.1.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
+      <HintPath>..\packages\AdaptiveCards.1.1.2\lib\net452\AdaptiveCards.dll</HintPath>
     </Reference>
     <Reference Include="Autofac, Version=4.8.1.0, Culture=neutral, PublicKeyToken=17863af14b0044da, processorArchitecture=MSIL">
       <HintPath>..\packages\Autofac.4.8.1\lib\net45\Autofac.dll</HintPath>
-    </Reference>
-    <Reference Include="BouncyCastle.Crypto, Version=1.8.4.0, Culture=neutral, PublicKeyToken=0e99375e54769942">
-      <HintPath>..\packages\BouncyCastle.1.8.4\lib\BouncyCastle.Crypto.dll</HintPath>
     </Reference>
     <Reference Include="Chronic, Version=0.3.2.0, Culture=neutral, PublicKeyToken=3bd1f1ef638b0d3c, processorArchitecture=MSIL">
       <HintPath>$(SolutionDir)\packages\Chronic.Signed.0.3.2\lib\net40\Chronic.dll</HintPath>
@@ -217,16 +214,6 @@
     </Content>
     <Content Include="default.htm" />
     <Content Include="Global.asax" />
-    <Content Include="Models\ASAChatData.Context.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <DependentUpon>ASAChatData.edmx</DependentUpon>
-      <LastGenOutput>ASAChatData.Context.cs</LastGenOutput>
-    </Content>
-    <Content Include="Models\ASAChatData.tt">
-      <Generator>TextTemplatingFileGenerator</Generator>
-      <DependentUpon>ASAChatData.edmx</DependentUpon>
-      <LastGenOutput>ASAChatData.cs</LastGenOutput>
-    </Content>
     <Content Include="Web.config">
       <SubType>Designer</SubType>
     </Content>
@@ -245,49 +232,19 @@
       <DependentUpon>Global.asax</DependentUpon>
     </Compile>
     <Compile Include="DataContracts\LuisResponse.cs" />
-    <Compile Include="Models\Answer.cs">
-      <DependentUpon>ASAChatData.tt</DependentUpon>
-    </Compile>
-    <Compile Include="Models\AnswerType.cs">
-      <DependentUpon>ASAChatData.tt</DependentUpon>
-    </Compile>
-    <Compile Include="Models\ASAChatData.Context.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-      <DependentUpon>ASAChatData.Context.tt</DependentUpon>
-    </Compile>
-    <Compile Include="Models\ASAChatData.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-      <DependentUpon>ASAChatData.tt</DependentUpon>
-    </Compile>
-    <Compile Include="Models\ASAChatData.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-      <DependentUpon>ASAChatData.edmx</DependentUpon>
-    </Compile>
-    <Compile Include="Models\Question.cs">
-      <DependentUpon>ASAChatData.tt</DependentUpon>
-    </Compile>
-    <Compile Include="Models\UserLog.cs">
-      <DependentUpon>ASAChatData.tt</DependentUpon>
-    </Compile>
+    <Compile Include="Models\AnswerModel.cs" />
+    <Compile Include="Models\ErrorModel.cs" />
+    <Compile Include="Models\QuestionModel.cs" />
+    <Compile Include="Models\UserLogModel.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Utilities\DataAccess.cs" />
+    <Compile Include="Utilities\Weather.cs" />
     <Compile Include="Utilities\IntentResponses.cs" />
-    <Compile Include="Utilities\OAuthBase.cs" />
-    <Compile Include="Utilities\OAuthMessageHandler.cs" />
     <Compile Include="Utilities\Utility.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="packages.config">
       <SubType>Designer</SubType>
-    </Content>
-    <EntityDeploy Include="Models\ASAChatData.edmx">
-      <Generator>EntityModelCodeGenerator</Generator>
-      <LastGenOutput>ASAChatData.Designer.cs</LastGenOutput>
-    </EntityDeploy>
-    <Content Include="Models\ASAChatData.edmx.diagram">
-      <DependentUpon>ASAChatData.edmx</DependentUpon>
     </Content>
     <None Include="Properties\PublishProfiles\ASAJarvisAppService - Web Deploy.pubxml" />
     <None Include="Web.Debug.config">

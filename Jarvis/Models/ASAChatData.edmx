@@ -26,6 +26,16 @@
           <Property Name="AnswerTypeId" Type="int" StoreGeneratedPattern="Identity" Nullable="false" />
           <Property Name="Description" Type="nvarchar" MaxLength="150" Nullable="false" />
         </EntityType>
+        <EntityType Name="Error">
+          <Key>
+            <PropertyRef Name="ErrorId" />
+          </Key>
+          <Property Name="ErrorId" Type="int" Nullable="false" />
+          <Property Name="ErrorMessage" Type="nvarchar(max)" />
+          <Property Name="UserLogId" Type="int" Nullable="false" />
+          <Property Name="ActivityId" Type="varchar" MaxLength="50" Nullable="false" />
+          <Property Name="CreatedDate" Type="datetime" Nullable="false" />
+        </EntityType>
         <EntityType Name="Question">
           <Key>
             <PropertyRef Name="QuestionId" />
@@ -73,9 +83,22 @@
             </Dependent>
           </ReferentialConstraint>
         </Association>
+        <Association Name="fk_error_userlog">
+          <End Role="UserLog" Type="Self.UserLog" Multiplicity="1" />
+          <End Role="Error" Type="Self.Error" Multiplicity="*" />
+          <ReferentialConstraint>
+            <Principal Role="UserLog">
+              <PropertyRef Name="Id" />
+            </Principal>
+            <Dependent Role="Error">
+              <PropertyRef Name="UserLogId" />
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>
         <EntityContainer Name="ASAChatdataModelStoreContainer">
           <EntitySet Name="Answer" EntityType="Self.Answer" Schema="dbo" store:Type="Tables" />
           <EntitySet Name="AnswerType" EntityType="Self.AnswerType" Schema="dbo" store:Type="Tables" />
+          <EntitySet Name="Error" EntityType="Self.Error" Schema="dbo" store:Type="Tables" />
           <EntitySet Name="Question" EntityType="Self.Question" Schema="dbo" store:Type="Tables" />
           <EntitySet Name="UserLog" EntityType="Self.UserLog" Schema="dbo" store:Type="Tables" />
           <AssociationSet Name="FK_Answer_AnswerType" Association="Self.FK_Answer_AnswerType">
@@ -85,6 +108,10 @@
           <AssociationSet Name="fk_answer_question" Association="Self.fk_answer_question">
             <End Role="Question" EntitySet="Question" />
             <End Role="Answer" EntitySet="Answer" />
+          </AssociationSet>
+          <AssociationSet Name="fk_error_userlog" Association="Self.fk_error_userlog">
+            <End Role="UserLog" EntitySet="UserLog" />
+            <End Role="Error" EntitySet="Error" />
           </AssociationSet>
         </EntityContainer>
       </Schema></edmx:StorageModels>
@@ -130,6 +157,7 @@
           <Property Name="Channel" Type="String" MaxLength="150" FixedLength="false" Unicode="true" Nullable="false" />
           <Property Name="ActivityDate" Type="DateTime" Nullable="false" Precision="3" />
           <Property Name="Message" Type="String" MaxLength="500" FixedLength="false" Unicode="true" />
+          <NavigationProperty Name="Errors" Relationship="ASAChatdataModel.fk_error_userlog" FromRole="UserLog" ToRole="Error" />
         </EntityType>
         <Association Name="FK_Answer_Question">
           <End Role="Question" Type="Self.Question" Multiplicity="1">
@@ -158,6 +186,11 @@
             <End Role="AnswerType" EntitySet="AnswerTypes" />
             <End Role="Answer" EntitySet="Answers" />
           </AssociationSet>
+          <EntitySet Name="Errors" EntityType="ASAChatdataModel.Error" />
+          <AssociationSet Name="fk_error_userlog" Association="ASAChatdataModel.fk_error_userlog">
+            <End Role="UserLog" EntitySet="UserLogs" />
+            <End Role="Error" EntitySet="Errors" />
+          </AssociationSet>
         </EntityContainer>
         <EntityType Name="AnswerType">
           <Key>
@@ -176,6 +209,29 @@
             </Principal>
             <Dependent Role="Answer">
               <PropertyRef Name="AnswerTypeId" />
+            </Dependent>
+          </ReferentialConstraint>
+        </Association>
+        <EntityType Name="Error">
+          <Key>
+            <PropertyRef Name="ErrorId" />
+          </Key>
+          <Property Name="ErrorId" Type="Int32" Nullable="false" />
+          <Property Name="ErrorMessage" Type="String" MaxLength="Max" FixedLength="false" Unicode="true" />
+          <Property Name="UserLogId" Type="Int32" Nullable="false" />
+          <Property Name="ActivityId" Type="String" Nullable="false" MaxLength="50" FixedLength="false" Unicode="false" />
+          <Property Name="CreatedDate" Type="DateTime" Nullable="false" Precision="3" />
+          <NavigationProperty Name="UserLog" Relationship="ASAChatdataModel.fk_error_userlog" FromRole="Error" ToRole="UserLog" />
+        </EntityType>
+        <Association Name="fk_error_userlog">
+          <End Type="ASAChatdataModel.UserLog" Role="UserLog" Multiplicity="1" />
+          <End Type="ASAChatdataModel.Error" Role="Error" Multiplicity="*" />
+          <ReferentialConstraint>
+            <Principal Role="UserLog">
+              <PropertyRef Name="Id" />
+            </Principal>
+            <Dependent Role="Error">
+              <PropertyRef Name="UserLogId" />
             </Dependent>
           </ReferentialConstraint>
         </Association>
@@ -230,6 +286,17 @@
               <MappingFragment StoreEntitySet="AnswerType">
                 <ScalarProperty Name="Description" ColumnName="Description" />
                 <ScalarProperty Name="AnswerTypeId" ColumnName="AnswerTypeId" />
+              </MappingFragment>
+            </EntityTypeMapping>
+          </EntitySetMapping>
+          <EntitySetMapping Name="Errors">
+            <EntityTypeMapping TypeName="ASAChatdataModel.Error">
+              <MappingFragment StoreEntitySet="Error">
+                <ScalarProperty Name="CreatedDate" ColumnName="CreatedDate" />
+                <ScalarProperty Name="ActivityId" ColumnName="ActivityId" />
+                <ScalarProperty Name="UserLogId" ColumnName="UserLogId" />
+                <ScalarProperty Name="ErrorMessage" ColumnName="ErrorMessage" />
+                <ScalarProperty Name="ErrorId" ColumnName="ErrorId" />
               </MappingFragment>
             </EntityTypeMapping>
           </EntitySetMapping>

@@ -5,8 +5,11 @@ using Microsoft.Bot.Connector;
 using Jarvis.Utilities;
 using System.Collections.Generic;
 using System.Text;
-using Atlassian.Jira;
 using System.Net.Mail;
+using AdaptiveCards;
+using Jarvis.Models;
+using Newtonsoft.Json;
+using System.IO;
 
 namespace Jarvis.Utilities
 {
@@ -26,16 +29,12 @@ namespace Jarvis.Utilities
         {
             var activity = await result as Activity;
 
+            var chatAnswer = new List<AnswerModel>();
+
             var intent = await Utility.GetLuisIntent(activity.Text);
 
-            //set default intent first
-            var _intentName = Utility.Intent.None.ToString();
-            if (intent.topScoringIntent.score > 0.6)
-            {
-                _intentName = intent.topScoringIntent.intent;
-            }
-
-            //this.IntentName = _intentName;
+            //get LUIS intent name
+            var _intentName = Utility.GetHighScoringIntent(intent);
 
             switch (_intentName)
             {
@@ -57,15 +56,78 @@ namespace Jarvis.Utilities
 
                 case nameof(Utility.Intent.HelpdeskTicket):
                     await HandleHelpdeskIntent(context);
+                    //await context.PostAsync("This feature is coming soon.");
+                    break;
+
+                case nameof(Utility.Intent.FindLunchPlaces):
+                    await HandleLunchIntent(context, intent);
+                    break;
+
+                case nameof(Utility.Intent.FireDrillLocation):
+                    await HandleFireDrillIntent(context);
                     break;
 
                 default:
-                    var chatAnswer = await Utility.GetAnswer(activity.Text);
+                    //get answers based on the text entered
+                    chatAnswer = await Utility.GetAndFormatAnswer(intent);
                     await DisplayAnswersAsync(context, chatAnswer);
                     context.Wait(HandleResponses);
                     break;
             }
 
+        }
+
+        private async Task HandleFireDrillIntent(IDialogContext context)
+        {
+            var image = new byte[] { };
+            var fileName = "FireDrillLocation.png";
+
+            //If image image is not in the cloud, get it and save it for future use. Otherwise, pull it down from cloud
+            if (!Utility.CheckCloudFileExists(fileName))
+            {
+                image = await Utility.GetImageByUrl(string.Format(Utility.fireDrillUriBase, Utility.bingMapsKey));
+
+                await Utility.UploadFileToCloud(fileName, image);
+            }
+            else
+            {
+                image = Utility.GetImageFromDatastore(fileName);
+            }
+
+            await context.PostAsync("At 33 Arch St., our meeting location is in Downtown Crossing, in between the Millenium Tower and TJ Maxx.");
+            await context.PostAsync("The image below shows it on a map.");
+            await DisplayImage(context, image);
+
+        }
+
+        private async Task HandleLunchIntent(IDialogContext context, LuisResponse intent)
+        {
+            if (intent.entities.Length > 0)
+            {
+                var lunchType = string.Empty;
+                {
+                    lunchType = intent.entities[0].entity;
+                }
+
+                await context.PostAsync(Utility.GetGoogleSearchMessage(lunchType));
+            }
+            else
+            {
+                PromptDialog.Text(
+                    context: context,
+                    resume: GetUserLunchChoice,
+                    prompt: "What do you want to eat today?",
+                    retry: "Sorry, I didn't understand that. Please try again."
+                );
+            }
+        }
+
+        private async Task GetUserLunchChoice(IDialogContext context, IAwaitable<string> result)
+        {
+            var lunchType = await result;
+            await context.PostAsync($"I see you want to get {lunchType}.");
+
+            await context.PostAsync(Utility.GetGoogleSearchMessage(lunchType));
         }
 
         private async Task HandleHelpdeskIntent(IDialogContext context)
@@ -93,21 +155,12 @@ namespace Jarvis.Utilities
 
             try
             {
-                //send an email to JSD to create the ticket
-                var sender = await GetEmail(context);
-                                    
-                MailMessage message = new MailMessage();
-                SmtpClient smtp = new SmtpClient();
-                message.From = new MailAddress(sender);
-                message.To.Add(new MailAddress(Utility.debugMode == "true" ? "mlemieux@asa.org" : "jiraservicedesk@asa.org"));
-                message.Subject = ticketDescription.Length > 50 ? ticketDescription.Substring(0,50) : ticketDescription;
-                message.IsBodyHtml = true;
-                message.Body = ticketDescription;
-                smtp.Port = 25;
-                smtp.Host = "mailhost";
-                smtp.DeliveryMethod = SmtpDeliveryMethod.Network;
-                smtp.Send(message);
+                var ccEmail = await GetEmail(context);
 
+                var member = await GetMember(context);
+
+                await Utility.SendEmail(Utility.debugMode == "true" ? "bzaino@asa.org" : "jiraservicedesk@asa.org", $"Chatbot Ticket for {member.Name}", ticketDescription, "mlemieux@asa.org");
+                
                 await context.PostAsync("I opened up ticket for you and you should be getting an email about it soon. Best of luck.");
             }
 
@@ -130,14 +183,16 @@ namespace Jarvis.Utilities
 
             var driveTime = await Utility.CheckTraffic(location);
 
-            var chatAnswer = await Utility.GetAnswer("Traffic");
+            var intent = await Utility.GetLuisIntent("Traffic");
+
+            var chatAnswer = Utility.GetAndFormatAnswer(intent).Result;
             chatAnswer[0].AnswerText += $"there is {driveTime} minutes.";
 
             await DisplayAnswersAsync(context, chatAnswer);
 
         }
 
-        private async Task DisplayAnswersAsync(IDialogContext context, List<Jarvis.Models.Answer> chatAnswer)
+        private async Task DisplayAnswersAsync(IDialogContext context, List<AnswerModel> chatAnswer)
         {
             if (chatAnswer.Count == 1)
             {
@@ -226,35 +281,52 @@ namespace Jarvis.Utilities
         /// <returns></returns>
         private async Task GetDisplayWeatherInfo(IDialogContext context, string location, bool showWeekendInfo)
         {
-            var weatherInfo = await Utility.CheckWeather(location, showWeekendInfo);
+            IMessageActivity message = null;
+            var card = await Weather.GetCard(location, showWeekendInfo);
 
-            if (weatherInfo.current == null)
+            if (card == null)
             {
-                //Location not found
-                await context.PostAsync(string.Format("Sorry, we could not find a weather report for the location you entered: {0}", location));
-            }
-            else if (weatherInfo.forecast.forecastday.Length > 0)
-            {
-                var responseLocation = weatherInfo.location.name;
-                var currentTemp = Math.Ceiling(weatherInfo.current.temp_f);
-                var lowTemp = Math.Ceiling(weatherInfo.forecast.forecastday[0].day.mintemp_f);
-                var highTemp = Math.Ceiling(weatherInfo.forecast.forecastday[0].day.maxtemp_f);
-                //description of sky (Clear, cloudy, etc.)
-                var skies = weatherInfo.current.condition.text;
-
-                await context.PostAsync(string.Format("In {0}, it is currently {1} degrees and it is {2}. The low today will be {3} with a high of {4}.", responseLocation, currentTemp, skies, lowTemp, highTemp));
-
+                message = context.MakeMessage();
+                message.Text = $"I couldn't find the weather for '{context.Activity.AsMessageActivity().Text}'.  Are you sure that's a real city?";
             }
             else
             {
-                await context.PostAsync(string.Format("Sorry, we had a problem finding a weather report for the location you entered: {0}. Please try again later.", location));
+                message = GetWeatherMessage(context, card, "Weather card");
             }
+
+            await context.PostAsync(message);
         }
-        
+
+        /// <summary>
+        /// Display card with weather info on it
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="card"></param>
+        /// <param name="cardName"></param>
+        /// <returns></returns>
+        private IMessageActivity GetWeatherMessage(IDialogContext context, AdaptiveCard card, string cardName)
+        {
+            var message = context.MakeMessage();
+            if (message.Attachments == null)
+            {
+                message.Attachments = new List<Microsoft.Bot.Connector.Attachment>();
+            }
+            var attachment = new Microsoft.Bot.Connector.Attachment()
+            {
+                Content = card,
+                ContentType = AdaptiveCard.ContentType,
+                Name = cardName
+            };
+
+            message.Attachments.Add(attachment);
+
+            return message;
+        }
+
         private async Task<string> GetEmail(IDialogContext context)
         {
             //default username
-            var email = "Jarvis@asa.org";
+            var email = "bzaino@asa.org";
 
             //within Teams, we have access to the user's email address, since it is linked to Microsoft. Other channels do not have this detail, so we will create the ticket under Jarvis
             if (context.Activity.ChannelId == "msteams")
@@ -268,10 +340,56 @@ namespace Jarvis.Utilities
                 }
             }
 
-            //var email = "bzaino@asa.org";
-            //username = email.Substring(0, email.IndexOf("@"));
-
             return email;
         }
+
+        private async Task<ChannelAccount> GetMember(IDialogContext context)
+        {
+            //default username
+            var member = new ChannelAccount();
+            member.Name = "Bart Zaino";
+
+            //within Teams, we have access to the user's email address, since it is linked to Microsoft. Other channels do not have this detail, so we will create the ticket under Jarvis
+            if (context.Activity.ChannelId == "msteams")
+            {
+                var connector = new ConnectorClient(new Uri(context.Activity.ServiceUrl));
+                var members = await connector.Conversations.GetConversationMembersAsync(context.Activity.Conversation.Id);
+
+                if (members.Count > 0)
+                {
+                    member = members[0];
+                }
+            }
+
+            return member;
+        }
+
+        /// <summary>
+        /// Display image as an attachment
+        /// </summary>
+        /// <param name="context"></param>
+        /// <param name="imageBytes"></param>
+        /// <returns></returns>
+        private static async Task DisplayImage(IDialogContext context, byte[] imageBytes)
+        {
+            try
+            {
+                var message = context.MakeMessage();
+
+                string url = "data:image/png;base64," + Convert.ToBase64String(imageBytes);
+                message.Attachments.Add(new Microsoft.Bot.Connector.Attachment()
+                {
+                    ContentUrl = url, ContentType = "image/png"
+                });
+
+                await context.PostAsync(message);
+            }
+
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+        }
+
     }
 }

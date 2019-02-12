@@ -11,6 +11,8 @@
         <AssociationConnector Association="ASAChatdataModel.FK_Answer_Question" ManuallyRouted="false" />
         <EntityTypeShape EntityType="ASAChatdataModel.AnswerType" Width="1.5" PointX="0.75" PointY="8.75" />
         <AssociationConnector Association="ASAChatdataModel.FK_Answer_AnswerType" />
+        <EntityTypeShape EntityType="ASAChatdataModel.Error" Width="1.5" PointX="3" PointY="5.875" />
+        <AssociationConnector Association="ASAChatdataModel.fk_error_userlog" />
       </Diagram>
     </edmx:Diagrams>
   </edmx:Designer>

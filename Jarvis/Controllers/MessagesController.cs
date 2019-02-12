@@ -20,18 +20,21 @@ namespace Jarvis
         /// </summary>
         public async Task<HttpResponseMessage> Post([FromBody]Activity activity)
         {
+            var userLogId = 0;
+
             if (activity.Type == ActivityTypes.Message)
             {
                 try
                 {
-                    Utility.LogActivity(activity);
+                    userLogId = await DataAccess.LogActivity(activity);
 
                     await TypingActivityAsync(activity);
                     await Conversation.SendAsync(activity, () => new Dialogs.RootDialog());
                 }
                 catch (Exception ex)
                 {
-                    var error = ex.Message;
+                    //log error to DB
+                    await DataAccess.LogError(userLogId, activity.Id, ex.Message);
                 }
             }
             else

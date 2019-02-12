@@ -21,7 +21,8 @@ using Jarvis.DataContracts;
 using Jarvis.DataContracts.WeatherData;
 using System.Security.Cryptography;
 using Newtonsoft.Json;
-
+using Microsoft.WindowsAzure.Storage;
+using Microsoft.WindowsAzure.Storage.Blob;
 
 namespace Jarvis.Utilities
 {
@@ -42,23 +43,25 @@ namespace Jarvis.Utilities
         public static string luisSubscriptionKey = ConfigurationManager.AppSettings["LUIS_SubscriptionKey"];
         public static string luisModelId = ConfigurationManager.AppSettings["LUIS_ModelId"];
         public static string isLuisStaging = ConfigurationManager.AppSettings["LUIS_Staging"];
-        //traffic info 
-        public static string bingAccessKey = ConfigurationManager.AppSettings["BingSearchKey"];
+        //bing map info 
         public static string bingMapsKey = ConfigurationManager.AppSettings["BingMapsKey"];
         public static string trafficApiUriBase = ConfigurationManager.AppSettings["TrafficApiUriBase"];
+        public static string fireDrillUriBase = ConfigurationManager.AppSettings["FireDrillUriBase"];
         //Search info
         public static string googleSearchBase = ConfigurationManager.AppSettings["GoogleSearchBase"];
         public static string googleSearchSuffix = ConfigurationManager.AppSettings["GoogleSearchSuffix"];
         //Weather Api
         public static string weatherApiKey = ConfigurationManager.AppSettings["WeatherApiKey"];
         public static string weatherApiUriBase = ConfigurationManager.AppSettings["WeatherApiUriBase"];
-        public static string yahooWeatherAppId = ConfigurationManager.AppSettings["YahooWeatherAppId"];
-        public static string yahooWeatherClientId = ConfigurationManager.AppSettings["YahooWeatherClientId"];
-        public static string yahooWeatherSecret = ConfigurationManager.AppSettings["YahooWeatherSecret"];
-        public static string accuWeatherApiKey = ConfigurationManager.AppSettings["AccuWeatherApiKey"];
-        public static string accuWeatherCitySearchApi = ConfigurationManager.AppSettings["AccuWeatherCitySearchApi"];
-        public static string accuWeatherConditionsApi = ConfigurationManager.AppSettings["AccuWeatherConditionsApi"];
-        public static string accuWeatherFiveDayApi = ConfigurationManager.AppSettings["AccuWeatherFiveDayApi"];
+        //email info
+        public static string jarvisEmailAddress = ConfigurationManager.AppSettings["JarvisEmailAddress"];
+        public static string errorEmailAddress = ConfigurationManager.AppSettings["ErrorEmailAddress"];
+        public static string botFrameworkUrl = ConfigurationManager.AppSettings["BotFrameworkUrl"];
+        //Azure storage info
+        public static string azureStorageAccountName = ConfigurationManager.AppSettings["AzureStorageAccountName"];
+        public static string azureStorageAccountKey = ConfigurationManager.AppSettings["AzureStorageAccountKey"];
+        public static string azureStorageConnectionString = ConfigurationManager.AppSettings["AzureStorageConnectionString"];
+        public static string dataAccessUrl = ConfigurationManager.AppSettings["DataAccessUrl"];
 
         /// <summary>
         /// Intents that require specific functionality, such as follow up questions, in order to provide answers.
@@ -77,7 +80,13 @@ namespace Jarvis.Utilities
             [field: IODescription("WhoAmI")]
             WhoAmI,
             [field: IODescription("WeatherWeekend")]
-            WeatherWeekend
+            WeatherWeekend,
+            [field: IODescription("FindLunchPlaces")]
+            FindLunchPlaces,
+            [field: IODescription("FireDrillLocation")]
+            FireDrillLocation,                
+            [field: IODescription("FindBusiness")]
+            FindBusiness
         }
 
         public static string Truncate(this string value, int maxLength)
@@ -85,106 +94,56 @@ namespace Jarvis.Utilities
             if (string.IsNullOrEmpty(value)) return value;
             return value.Length <= maxLength ? value : value.Substring(0, maxLength);
         }
-
+        
         /// <summary>
-        /// Gets the answer based on the question ID returned back from the Azure search service
+        /// Get the Answer(s) based on the intent name. In this situation, the intent will have one or more entities that we will do a search on
         /// </summary>
-        /// <param name="activity"></param>
+        /// <param name="intent"></param>
         /// <returns></returns>
-        public static async Task<List<Answer>> GetAnswer(string messageText)
+        public static async Task<List<AnswerModel>> GetAndFormatAnswer(LuisResponse intent)
         {
-            List<Answer> chatAnswers = new List<Answer>();
+            //List<Answer> chatAnswers = new List<Answer>();
 
-            var intent = await Utility.GetLuisIntent(messageText);
+            var chatAnswers = new List<AnswerModel>();
 
-            var questionInfo = GetQuestion(intent);
+            var questionInfo = await DataAccess.GetQuestion(GetHighScoringIntent(intent));
 
             if (questionInfo.QuestionText != null)
             {
-                using (var db = new ASAChatdataEntities())
-                {
-                    try
-                    {
-
-                        var answers = (from Answer in db.Answers
-                                       where Answer.QuestionId == questionInfo.QuestionId
-                                       orderby Answer.AnswerOrder ascending
-                                       select Answer)
-                                    .ToList();
-
-                        chatAnswers = answers;
-                    }
-
-                    catch (Exception ex)
-                    {
-                        var foo = ex.Message;
-                    }
-                }
+                chatAnswers = DataAccess.GetAnswers(questionInfo.QuestionId).Result;
 
                 //if we get back answers with AnswerTypeId = 2, then we need to do a web search. Format those answers.
                 if (chatAnswers.Count > 0 && chatAnswers[0].AnswerTypeId == 2)
                 {
-                    FormatWebResponseTypeAnswers(chatAnswers);
-                }
+                    if (intent.entities.Length > 0)
+                    {
+                        var searchString = intent.entities[0].entity;
 
+                        for (int i = 1; i < intent.entities.Length; i++)
+                        {
+                            searchString += $" {intent.entities[i].entity}";
+                        }
+
+                        chatAnswers[0].AnswerText = GetGoogleSearchMessage(searchString);
+                    }
+                }
             }
+
             return chatAnswers;
         }
 
-        public static Question GetQuestion(LuisResponse intent)
+        public static string GetHighScoringIntent(LuisResponse intent)
         {
-            var questionList = new List<Question>();
-            var questionToReturn = new Question();
-
-            //by default set intent to None. Check response to verify that the intent is a good match (
+            //by default set intent to None. Check response to verify that the intent is a good match
             var intentName = "None";
-            if (intent.topScoringIntent.score > 0.7 )
+            if (intent.topScoringIntent.score > 0.6)
             {
                 intentName = intent.topScoringIntent.intent;
             }
 
-            using (var db = new ASAChatdataEntities())
-            {
-                try
-                {
-                    questionList = (from Question in db.Questions
-                                   where Question.LuisIntent == intentName
-                                select Question)
-                                .ToList();
-                }
-
-                catch (Exception ex)
-                {
-                    var foo = ex.Message;
-                }
-            }
-
-            if (questionList.Count > 0)
-            {
-                questionToReturn = questionList[0];
-            }
-
-            return questionToReturn;
+            return intentName;
         }
-
-        /// <summary>
-        /// Make call to Azure search service to determine most likely question match based on the question asked by the user
-        /// </summary>
-        /// <param name="questionText"></param>
-        /// <returns></returns>
-        //private static Question GetQuestion(string questionText)
-        //{
-        //    DocumentSearchResult<Question> results;
-
-        //    ISearchIndexClient indexClientForQueries = CreateSearchIndexClient();
-
-        //    results = indexClientForQueries.Documents.Search<Question>(questionText);
-
-        //    //LogSearchAnalytics(questionText, results.Results.Count);
-
-        //    return results.Results[0].Document;
-        //}
-
+        
         //private static void LogSearchAnalytics(string questionText, int resultsCount)
         //{
         //    var telemetryClient = new TelemetryClient();
@@ -199,93 +158,53 @@ namespace Jarvis.Utilities
         //    telemetryClient.TrackEvent("Search", properties);
         //}
 
-        /// <summary>
-        /// Build Search Index client to query Azure Search index
-        /// </summary>
-        /// <returns></returns>
-        private static SearchIndexClient CreateSearchIndexClient()
-        {
-            SearchIndexClient indexClient = new SearchIndexClient(searchServiceName, searchIndexName, new SearchCredentials(queryApiKey));
-            return indexClient;
-        }
-
-        public static void LogActivity(Activity activity)
-        {
-            using (var db = new ASAChatdataEntities())
-            {
-                // Create a new UserLog object
-                UserLog newUserLog = new UserLog();
-                // Set the properties on the UserLog object
-                newUserLog.Channel = activity.ChannelId;
-                newUserLog.UserId = activity.From.Id;
-                newUserLog.UserName = activity.From.Name;
-                newUserLog.ActivityDate = DateTime.UtcNow;
-                newUserLog.Message = activity.Text.Truncate(500);
-                // Add the UserLog object to UserLogs
-                db.UserLogs.Add(newUserLog);
-                // Save the changes to the database
-                try
-                {
-                    db.SaveChanges();
-                }
-
-                catch (Exception ex)
-                {
-                    var foo = ex.InnerException;
-                }
-            }
-        }
 
         public static async Task<LuisResponse> GetLuisIntent(string questionText)
         {
-            var client = new HttpClient();
-            var queryString = HttpUtility.ParseQueryString(string.Empty);
             var luisObj = new LuisResponse();
 
-            // This app ID is for a public sample app that recognizes requests to turn on and turn off lights
-            var luisAppId = luisModelId;
-            var endpointKey = luisSubscriptionKey;
-
-            // The request header contains your subscription key
-            client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", endpointKey);
-
-            // The "q" parameter contains the utterance to send to LUIS
-            queryString["q"] = questionText;
-
-            // These optional request parameters are set to their default values
-            //queryString["timezoneOffset"] = "0";
-            //queryString["verbose"] = "false";
-            //queryString["spellCheck"] = "false";
-            queryString["staging"] = isLuisStaging;
-
-            try
+            using (var client = new HttpClient())
             {
-                var endpointUri = "https://westus.api.cognitive.microsoft.com/luis/v2.0/apps/" + luisAppId + "?" + queryString;
-                var response = await client.GetAsync(endpointUri);
+                var queryString = HttpUtility.ParseQueryString(string.Empty);
 
-                var strResponseContent = await response.Content.ReadAsStringAsync();
+                var luisAppId = luisModelId;
+                var endpointKey = luisSubscriptionKey;
 
-                luisObj = Newtonsoft.Json.JsonConvert.DeserializeObject<LuisResponse>(strResponseContent);
+                // The request header contains your subscription key
+                client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", endpointKey);
+
+                // The "q" parameter contains the utterance to send to LUIS
+                queryString["q"] = questionText;
+
+                // These optional request parameters are set to their default values
+                //queryString["timezoneOffset"] = "0";
+                queryString["verbose"] = "true";
+                queryString["spellCheck"] = "true";
+                queryString["staging"] = isLuisStaging;
+                queryString["bing-spell-check-subscription-key"] = "ff8ba62777f84410abdd0b6202e290a6";
+
+                try
+                {
+                    var endpointUri = "https://westus.api.cognitive.microsoft.com/luis/v2.0/apps/" + luisAppId + "?" + queryString;
+                    var response = await client.GetAsync(endpointUri);
+
+                    var strResponseContent = await response.Content.ReadAsStringAsync();
+
+                    luisObj = Newtonsoft.Json.JsonConvert.DeserializeObject<LuisResponse>(strResponseContent);
+                }
+                catch (Exception ex)
+                {
+                    var error = ex.Message;
+                    throw;
+                }
             }
-            catch (Exception ex)
-            {
-                var error = ex.Message;
-                throw;
-            }
-
 
             return luisObj;
         }
 
-        /// <summary>
-        /// Display give users a link to a Google search based on the intent found
-        /// </summary>
-        /// <param name="answers"></param>
-        private static void FormatWebResponseTypeAnswers(List<Answer> answers)
+        public static string GetGoogleSearchMessage(string searchInfo)
         {
-            int targetIndex = answers.Count - 1;
-            var searchString = answers[targetIndex].AnswerText;
-            answers[targetIndex].AnswerText = String.Format("I did a Google search for you and found some results. Go {0} to see what I found", "<a href='" + googleSearchBase + searchString + " near 33 Arch St Boston Ma'>here</a>");
+            return String.Format("I did a Google search for you and found some results. Go {0} to see what I found", "<a href='" + googleSearchBase + Uri.EscapeDataString(searchInfo) + " near 33 Arch St Boston Ma'>here</a>");
         }
 
         /// <summary>
@@ -303,18 +222,20 @@ namespace Jarvis.Utilities
 
             Uri geocodeRequest = new Uri(string.Format(trafficApiUriBase, startingPoint, destination, bingMapsKey));
 
-            WebClient wc = new WebClient();
-            var mapResponse = await wc.OpenReadTaskAsync(geocodeRequest);
-
-            //Transform web client response to BingApi Response object
-            DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(Response));
-            var data = ser.ReadObject(mapResponse) as Response;
-
-            //Just get Route data, which has the drive time
-            if (data.ResourceSets.Length > 0 && data.ResourceSets[0].Resources.Length > 0)
+            using (var wc = new WebClient())
             {
-                var route = data.ResourceSets[0].Resources[0] as Route;
-                duration = Math.Ceiling(route.TravelDurationTraffic/60);
+                var mapResponse = await wc.OpenReadTaskAsync(geocodeRequest);
+
+                //Transform web client response to BingApi Response object
+                DataContractJsonSerializer ser = new DataContractJsonSerializer(typeof(Response));
+                var data = ser.ReadObject(mapResponse) as Response;
+
+                //Just get Route data, which has the drive time
+                if (data.ResourceSets.Length > 0 && data.ResourceSets[0].Resources.Length > 0)
+                {
+                    var route = data.ResourceSets[0].Resources[0] as Route;
+                    duration = Math.Ceiling(route.TravelDurationTraffic / 60);
+                }
             }
 
             return duration;
@@ -332,45 +253,130 @@ namespace Jarvis.Utilities
 
             Uri weatherUri = new Uri(string.Format(weatherApiUriBase, weatherApiKey, location, days));
 
-            WebClient wc = new WebClient();
+            using (var wc = new WebClient())
+            {
+                var weatherResponse = await wc.DownloadStringTaskAsync(weatherUri);
 
-            var weatherResponse = await wc.DownloadStringTaskAsync(weatherUri);
-
-            weatherInfo = JsonConvert.DeserializeObject<WeatherInfo>(weatherResponse);
+                weatherInfo = JsonConvert.DeserializeObject<WeatherInfo>(weatherResponse);
+            }
 
             return weatherInfo;
 
         }
-        //public static async Task HandleOAuth()
-        //{
-        //    HttpClient client = new HttpClient(new OAuthMessageHandler(new HttpClientHandler()));
 
-        //    var address = "https://weather-ydn-yql.media.yahoo.com/forecastrss?location=sunnyvale,ca&format=json";
+        /// <summary>
+        /// Gets image from Bing Maps API
+        /// </summary>
+        /// <param name="imageUri"></param>
+        /// <param name="filePath"></param>
+        /// <returns></returns>
+        public static async Task<byte[]> GetImageByUrl(string address)
+        {
+            byte[] imageArray = new byte[] { };
 
-        //    // Send asynchronous request to twitter
-        //    await client.GetAsync(address).ContinueWith(
-        //        (requestTask) =>
-        //        {
-        //            // Get HTTP response from completed task.
-        //            HttpResponseMessage response = requestTask.Result;
+            using (var wc = new WebClient())
+            {
+                try
+                {
+                    imageArray = await wc.DownloadDataTaskAsync(address);
+                }
+                catch (Exception ex)
+                {
 
-        //            // Check that response was successful or throw exception
-        //            //response.EnsureSuccessStatusCode();
+                    throw ex;
+                }
+            }
 
-        //            //// Read response asynchronously as JsonValue and write out tweet texts
-        //            //response.Content.ReadAsAsync<JsonArray>().ContinueWith(
-        //            //    (readTask) =>
-        //            //    {
-        //            //        JsonArray statuses = readTask.Result;
-        //            //        Console.WriteLine("\nLast 5 statuses from ScottGu's twitter account:\n");
-        //            //        foreach (var status in statuses)
-        //            //        {
-        //            //            Console.WriteLine(status["text"] + "\n");
-        //            //        }
-        //            //    });
-        //        });
-        //}
+            return imageArray;
+        }
 
+        public static async Task SendEmail(string recipientAddress, string emailSubject, string emailBody, string ccEmail = null)
+        {
+            var botAccount = new ChannelAccount(name: "Jarvis", id: Utility.jarvisEmailAddress);
+            var userAccount = new ChannelAccount(id: recipientAddress); //the email account you are sending your messages to
+            MicrosoftAppCredentials.TrustServiceUrl(Utility.botFrameworkUrl, DateTime.MaxValue);
+
+            try
+            {
+                using (var connector = new ConnectorClient(new Uri(Utility.botFrameworkUrl)))
+                {
+                    var conversationId = await connector.Conversations.CreateDirectConversationAsync(botAccount, userAccount);
+
+                    IMessageActivity message = Activity.CreateMessageActivity();
+                    message.From = botAccount;
+                    message.Recipient = userAccount;
+                    message.ChannelData = JsonConvert.SerializeObject(new { subject = emailSubject, ccRecipients = ccEmail });
+                    message.Conversation = new ConversationAccount(id: conversationId.Id);
+                    message.Text = emailBody;
+                    message.Locale = "en-Us";
+
+                    await connector.Conversations.SendToConversationAsync((Activity)message);
+                }
+            }
+
+            catch (Exception ex)
+            {
+                throw new Exception($"There was an issue creating your ticket:{ex.InnerException.Message}");
+            }
+        }
+
+        public static async Task UploadFileToCloud(string fileName, byte[] file)
+        {
+            var cloudBlobContainer = GetBlobContainer("images");
+
+            var blockBlob = cloudBlobContainer.GetBlockBlobReference(fileName);
+            //if the file does not exist, upload it
+            if (!CheckCloudFileExists(fileName))
+            {
+                await blockBlob.UploadFromByteArrayAsync(file, 0, file.Length);
+            }
+        }
+
+        private static CloudBlobContainer GetBlobContainer(string containerName)
+        {
+            var connectionString = string.Format(Utility.azureStorageConnectionString, Utility.azureStorageAccountName, Utility.azureStorageAccountKey);
+            var cloudStorageAccount = CloudStorageAccount.Parse(connectionString);
+            var cloudBlobClient = cloudStorageAccount.CreateCloudBlobClient();
+            var cloudBlobContainer = cloudBlobClient.GetContainerReference(containerName);
+            cloudBlobContainer.CreateIfNotExists();
+
+            return cloudBlobContainer;
+        }
+
+        public static byte[] GetImageFromDatastore(string fileName)
+        {
+            var image = new byte[] { };
+
+            var cloudBlobContainer = GetBlobContainer("images");
+
+            var blockBlob = cloudBlobContainer.GetBlockBlobReference(fileName);
+
+            try
+            {
+                //Blob needs to be downloaded as a stream and then converted to a byte array
+                //https://stackoverflow.com/questions/43271267/azure-blob-download-as-byte-array-error-memory-stream-is-not-expandable
+                using (var ms = new MemoryStream())
+                {
+                    blockBlob.DownloadToStream(ms);
+                    image = ms.ToArray();
+                }
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }            
+
+            return image;
+        }
+
+        public static bool CheckCloudFileExists(string fileName)
+        {
+            var cloudBlobContainer = GetBlobContainer("images");
+
+            var blockBlob = cloudBlobContainer.GetBlockBlobReference(fileName);
+
+            return blockBlob.Exists();
+        }
 
 
     }

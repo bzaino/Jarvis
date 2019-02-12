@@ -29,5 +29,6 @@ namespace Jarvis.Models
         public virtual DbSet<Question> Questions { get; set; }
         public virtual DbSet<UserLog> UserLogs { get; set; }
         public virtual DbSet<AnswerType> AnswerTypes { get; set; }
+        public virtual DbSet<Error> Errors { get; set; }
     }
 }
